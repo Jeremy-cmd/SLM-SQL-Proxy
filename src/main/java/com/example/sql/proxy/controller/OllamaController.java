@@ -1,6 +1,7 @@
 package com.example.sql.proxy.controller;
 
 import com.example.sql.proxy.dto.UserDto;
+import com.example.sql.proxy.model.User;
 import com.example.sql.proxy.service.ProxyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
@@ -17,12 +18,10 @@ public class OllamaController {
     private final ProxyService proxyService;
 
     @GetMapping
-    public String generate(@RequestParam("message") String message) {
+    public  List<User> generate(@RequestParam("message") String message) {
 
-        return client.prompt()
-                .user(message)
-                .call()
-                .content();
+        return proxyService.generate(message);
+
     }
 
     @GetMapping("/users")
