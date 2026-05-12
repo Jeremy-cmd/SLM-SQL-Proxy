@@ -61,28 +61,21 @@ public class ProxyService {
 
         String currentSchema = getDatabaseSchema();
 
-        ChatResponse chatResponse = client.prompt()
+        String query = client.prompt()
                 .system(s -> s.param("schema", currentSchema))
                 .user(message)
                 .tools(this)
                 .call()
-                .chatResponse();
-
-        AssistantMessage output = chatResponse.getResult().getOutput();
+                .content();
 
         if (this.tool) {
             log.info("user added successfully");
             return List.of(lastCreatedUser);
         }
 
-
-        String query = output.getText();
-
         sqlValidator.validateSQLQuery(query);
 
         return jdbcClient.sql(query).query(User.class).list();
-
-
 
     }
 
