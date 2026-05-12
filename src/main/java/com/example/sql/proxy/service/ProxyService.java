@@ -5,8 +5,11 @@ import com.example.sql.proxy.dto.UserDto;
 import com.example.sql.proxy.model.User;
 import com.example.sql.proxy.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.jspecify.annotations.Nullable;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ProxyService {
 
@@ -21,15 +25,20 @@ public class ProxyService {
     private final JdbcClient jdbcClient;
     private final ChatClient client;
     private final SqlValidator sqlValidator;
+    private User lastCreatedUser;
+    private boolean tool;
 
+    @Tool(description = "This saves a user to the database")
     public UserDto addUser(UserDto userDto) {
+
+        this.tool = true;
 
         User user = new User();
         user.setFirstName(userDto.firstName());
         user.setLastName(userDto.lastName());
         user.setAddress(userDto.address());
 
-        userRepository.save(user);
+        lastCreatedUser = userRepository.save(user);
 
         return new UserDto(user.getId(), user.getFirstName(), user.getLastName(), user.getAddress());
 
@@ -46,18 +55,32 @@ public class ProxyService {
 
     public List<User> generate(String message) {
 
+        this.tool = false;
+
+        lastCreatedUser = null;
+
         String currentSchema = getDatabaseSchema();
 
-        String query = client.prompt()
+        ChatResponse chatResponse = client.prompt()
                 .system(s -> s.param("schema", currentSchema))
                 .user(message)
+                .tools(this)
                 .call()
-                .content();
+                .chatResponse();
+
+        AssistantMessage output = chatResponse.getResult().getOutput();
+
+        if (this.tool) {
+            log.info("user added successfully");
+            return List.of(lastCreatedUser);
+        }
 
 
-            sqlValidator.validateSQLQuery(query);
+        String query = output.getText();
 
-            return jdbcClient.sql(query).query(User.class).list();
+        sqlValidator.validateSQLQuery(query);
+
+        return jdbcClient.sql(query).query(User.class).list();
 
 
 
