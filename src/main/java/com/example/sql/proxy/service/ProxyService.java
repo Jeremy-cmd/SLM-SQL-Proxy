@@ -1,13 +1,12 @@
 package com.example.sql.proxy.service;
 
-import com.example.sql.proxy.SqlValidator;
+import com.example.sql.proxy.validator.SqlValidator;
 import com.example.sql.proxy.dto.UserDto;
 import com.example.sql.proxy.model.User;
 import com.example.sql.proxy.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -15,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 @Service
 @Slf4j
@@ -25,23 +25,24 @@ public class ProxyService {
     private final JdbcClient jdbcClient;
     private final ChatClient client;
     private final SqlValidator sqlValidator;
-    private User lastCreatedUser;
-    private boolean tool;
 
-    @Tool(description = "This saves a user to the database")
+    private static final ThreadLocal<UserDto> threadLocalUser = new ThreadLocal<>();
+
+
+    @Tool(description = "Executes an INSERT operation to create a NEW user record. Triggered ONLY by verbs like 'add', 'create', or 'save'." +
+            "\"NEVER call this for 'list', 'show', 'search', or 'who', or 'give', or 'send' queries.\"")
     public UserDto addUser(UserDto userDto) {
-
-        this.tool = true;
 
         User user = new User();
         user.setFirstName(userDto.firstName());
         user.setLastName(userDto.lastName());
         user.setAddress(userDto.address());
 
-        lastCreatedUser = userRepository.save(user);
+        User savedUser = userRepository.save(user);
 
-        return new UserDto(user.getId(), user.getFirstName(), user.getLastName(), user.getAddress());
-
+        UserDto savedDtoUser = new UserDto(savedUser.getId(), savedUser.getFirstName(), savedUser.getLastName(), savedUser.getAddress());
+        threadLocalUser.set(savedDtoUser);
+        return savedDtoUser;
 
     }
 
@@ -53,29 +54,42 @@ public class ProxyService {
 
     }
 
-    public List<User> generate(String message) {
+    public List<UserDto> generate(String message) {
 
-        this.tool = false;
+        threadLocalUser.remove();
 
-        lastCreatedUser = null;
+        try {
+            String currentSchema = getDatabaseSchema();
 
-        String currentSchema = getDatabaseSchema();
+            var prompt = client.prompt()
+                    .system(s -> s.param("schema", currentSchema))
+                    .user(message);
 
-        String query = client.prompt()
-                .system(s -> s.param("schema", currentSchema))
-                .user(message)
-                .tools(this)
-                .call()
-                .content();
+            String lowerMsg = message.toLowerCase();
+            if (lowerMsg.contains("add") || lowerMsg.contains("save") || lowerMsg.contains("create")) {
+                prompt.tools(this);
+            }
 
-        if (this.tool) {
-            log.info("user added successfully");
-            return List.of(lastCreatedUser);
+            String query = prompt.call().content();
+
+            UserDto retrievedUser = threadLocalUser.get();
+
+            if (retrievedUser != null) {
+                log.info("user added successfully");
+                return List.of(retrievedUser);
+            }
+
+
+            sqlValidator.validateSQLQuery(query);
+
+            return jdbcClient.sql(query).query(User.class)
+                    .stream().map(user -> new UserDto(user.getId(), user.getFirstName(),
+                            user.getLastName(), user.getAddress())).toList();
+
         }
-
-        sqlValidator.validateSQLQuery(query);
-
-        return jdbcClient.sql(query).query(User.class).list();
+        finally {
+            threadLocalUser.remove();
+        }
 
     }
 
