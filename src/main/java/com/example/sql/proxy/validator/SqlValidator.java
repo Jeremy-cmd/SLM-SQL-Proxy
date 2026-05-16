@@ -1,4 +1,4 @@
-package com.example.sql.proxy;
+package com.example.sql.proxy.validator;
 
 import com.example.sql.proxy.Exception.SqlSafetyException;
 import net.sf.jsqlparser.JSQLParserException;
