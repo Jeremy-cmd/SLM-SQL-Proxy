@@ -14,19 +14,16 @@ import java.util.List;
 @RequiredArgsConstructor
 public class OllamaController {
 
-    private final ChatClient client;
     private final ProxyService proxyService;
-
-    @GetMapping
-    public  List<User> generate(@RequestParam("message") String message) {
-
-        return proxyService.generate(message);
-
-    }
 
     @GetMapping("/users")
     public List<UserDto> getUsers() {
         return proxyService.getAllUsers();
+    }
+
+    @PostMapping("/generate")
+    public  List<UserDto> generate(@RequestParam("message") String message) {
+        return proxyService.generate(message);
     }
 
     @PostMapping("/add")
