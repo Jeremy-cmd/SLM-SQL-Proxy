@@ -1,6 +1,5 @@
 package com.example.sql.proxy.controller;
 
-import com.example.sql.proxy.dto.DynamicQueryObject;
 import com.example.sql.proxy.dto.UserDto;
 import com.example.sql.proxy.model.User;
 import com.example.sql.proxy.service.ProxyService;
@@ -23,7 +22,7 @@ public class OllamaController {
     }
 
     @PostMapping("/generate")
-    public  List<DynamicQueryObject> generate(@RequestParam("message") String message) {
+    public  Object generate(@RequestParam("message") String message) {
         return proxyService.generate(message);
     }
 

@@ -1,6 +1,5 @@
 package com.example.sql.proxy.service;
 
-import com.example.sql.proxy.dto.DynamicQueryObject;
 import com.example.sql.proxy.validator.SqlValidator;
 import com.example.sql.proxy.dto.UserDto;
 import com.example.sql.proxy.model.User;
@@ -27,7 +26,7 @@ public class ProxyService {
     private final ChatClient client;
     private final SqlValidator sqlValidator;
 
-    private static final ThreadLocal<DynamicQueryObject> threadLocalResult = new ThreadLocal<>();
+    private static final ThreadLocal<Object> threadLocalResult = new ThreadLocal<>();
 
 
     @Tool(description = "Executes an INSERT operation to create a NEW user record. Triggered ONLY by verbs like 'add', 'create', or 'save'." +
@@ -42,7 +41,7 @@ public class ProxyService {
         User savedUser = userRepository.save(user);
 
         UserDto savedDtoUser = new UserDto(savedUser.getId(), savedUser.getFirstName(), savedUser.getLastName(), savedUser.getAddress());
-        threadLocalResult.set(new DynamicQueryObject(savedDtoUser));
+        threadLocalResult.set(savedDtoUser);
         return savedDtoUser;
 
     }
@@ -55,7 +54,7 @@ public class ProxyService {
 
     }
 
-    public List<DynamicQueryObject> generate(String message) {
+    public Object generate(String message) {
 
         threadLocalResult.remove();
 
@@ -73,7 +72,7 @@ public class ProxyService {
 
             String query = prompt.call().content();
 
-            DynamicQueryObject result = threadLocalResult.get();
+            Object result = threadLocalResult.get();
 
             if (result != null) {
                 log.info("user added successfully");
@@ -83,11 +82,8 @@ public class ProxyService {
 
             sqlValidator.validateSQLQuery(query);
 
-            return jdbcClient.sql(query).query(User.class)
-                    .stream().map(user -> new DynamicQueryObject(
-                            new UserDto(user.getId(), user.getFirstName(),
-                            user.getLastName(), user.getAddress())
-                    )).toList();
+            return jdbcClient.sql(query).query()
+                    .listOfRows();
 
         }
         finally {
