@@ -96,19 +96,36 @@ public class ProxyService {
     private String getDatabaseSchema() {
 
         String sql = """
-                SELECT table_name,
-                    string_agg(column_name || ' (' || data_type || ')', ', ') as columns
-                FROM information_schema.columns
-                WHERE table_schema = 'public'
-                GROUP BY table_name;
+                SELECT\s
+                                t.table_name,
+                                (SELECT string_agg(c.column_name || ' (' || c.data_type || ')', ', ')
+                                 FROM information_schema.columns c
+                                 WHERE c.table_name = t.table_name AND c.table_schema = 'public'
+                                ) AS columns,
+                                COALESCE(
+                                    (SELECT string_agg(kcu.column_name || ' references ' || ccu.table_name || '(' || ccu.column_name || ')', ' | ')
+                                     FROM information_schema.table_constraints tc
+                                     JOIN information_schema.key_column_usage kcu\s
+                                       ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+                                     JOIN information_schema.constraint_column_usage ccu\s
+                                       ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+                                     WHERE tc.constraint_type = 'FOREIGN KEY'\s
+                                       AND tc.table_name = t.table_name\s
+                                       AND tc.table_schema = 'public'
+                                    ), 'No Relationships'
+                                ) AS relationships
+                            FROM information_schema.tables t
+                            WHERE t.table_schema = 'public'
+                            GROUP BY t.table_name;
                 """;
 
         List<Map<String, Object>> rows = jdbcClient.sql(sql).query().listOfRows();
 
         StringBuilder schemaBuilder = new StringBuilder();
         for(Map<String, Object> row : rows) {
-            schemaBuilder.append("Table: ").append(row.get("table_name"))
-                         .append(" Columns: ").append(row.get("columns"))
+            schemaBuilder.append("Table: ").append(row.get("table_name")).append("\n")
+                         .append(" Columns: ").append(row.get("columns")).append("\n")
+                    .append(" Relationships ").append(row.get("relationships"))
                     .append("\n");
         }
 
