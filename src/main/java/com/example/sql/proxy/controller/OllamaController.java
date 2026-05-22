@@ -1,5 +1,6 @@
 package com.example.sql.proxy.controller;
 
+import com.example.sql.proxy.dto.ItemDto;
 import com.example.sql.proxy.dto.UserDto;
 import com.example.sql.proxy.model.User;
 import com.example.sql.proxy.service.ProxyService;
@@ -26,9 +27,14 @@ public class OllamaController {
         return proxyService.generate(message);
     }
 
-    @PostMapping("/add")
+    @PostMapping("/addUser")
     public UserDto addUser(@RequestBody UserDto userDto) {
         return proxyService.addUser(userDto);
 
+    }
+
+    @PostMapping("/addItem")
+    public ItemDto addItem(@RequestBody ItemDto itemDto) {
+        return proxyService.addItem(itemDto);
     }
 }
