@@ -1,5 +1,8 @@
 package com.example.sql.proxy.service;
 
+import com.example.sql.proxy.dto.ItemDto;
+import com.example.sql.proxy.model.Item;
+import com.example.sql.proxy.repository.ItemRepository;
 import com.example.sql.proxy.validator.SqlValidator;
 import com.example.sql.proxy.dto.UserDto;
 import com.example.sql.proxy.model.User;
@@ -22,6 +25,7 @@ import java.util.stream.Stream;
 public class ProxyService {
 
     private final UserRepository userRepository;
+    private final ItemRepository itemRepository;
     private final JdbcClient jdbcClient;
     private final ChatClient client;
     private final SqlValidator sqlValidator;
@@ -44,6 +48,19 @@ public class ProxyService {
         threadLocalResult.set(savedDtoUser);
         return savedDtoUser;
 
+    }
+
+    @Tool(description = "Executes an INSERT STATEMENT to create a new ITEM record")
+    public ItemDto addItem(ItemDto itemDto) {
+        Item item = new Item();
+        item.setName(itemDto.name());
+        item.setSku(itemDto.sku());
+        item.setDescription(itemDto.description());
+
+        Item savedItem = itemRepository.save(item);
+        ItemDto savedDtoItem = new ItemDto(savedItem.getId(), savedItem.getName(), savedItem.getSku(), savedItem.getPrice(), savedItem.getDescription());
+        threadLocalResult.set(savedDtoItem);
+        return savedDtoItem;
     }
 
     public List<UserDto> getAllUsers() {
