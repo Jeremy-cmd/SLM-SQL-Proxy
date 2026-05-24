@@ -1,12 +1,14 @@
 package com.example.sql.proxy.service;
 
 import com.example.sql.proxy.dto.ItemDto;
+import com.example.sql.proxy.dto.OrderRequest;
 import com.example.sql.proxy.model.Item;
 import com.example.sql.proxy.repository.ItemRepository;
 import com.example.sql.proxy.validator.SqlValidator;
 import com.example.sql.proxy.dto.UserDto;
 import com.example.sql.proxy.model.User;
 import com.example.sql.proxy.repository.UserRepository;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -62,6 +64,12 @@ public class ProxyService {
         ItemDto savedDtoItem = new ItemDto(savedItem.getId(), savedItem.getName(), savedItem.getSku(), savedItem.getPrice(), savedItem.getDescription());
         threadLocalResult.set(savedDtoItem);
         return savedDtoItem;
+    }
+
+    @Tool(name = "create new order", description = "creates a new order with items")
+    @Transactional
+    public String createOrder(OrderRequest orderRequest) {
+        return "";
     }
 
     public List<UserDto> getAllUsers() {
