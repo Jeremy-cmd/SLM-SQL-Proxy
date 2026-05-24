@@ -55,6 +55,7 @@ public class ProxyService {
         Item item = new Item();
         item.setName(itemDto.name());
         item.setSku(itemDto.sku());
+        item.setPrice(itemDto.price());
         item.setDescription(itemDto.description());
 
         Item savedItem = itemRepository.save(item);
