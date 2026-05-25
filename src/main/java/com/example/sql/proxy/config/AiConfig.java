@@ -35,6 +35,7 @@ public class AiConfig {
                          CRITICAL RULES:
                                   - The word 'user' OR 'users' in a search request refers to the 'users' table, NOT the 'addUser' tool.
                                   - ONLY CALL addUser tool method ONLY IF the message Has intent to add new data.
+                                  - When calling tools, provide standard JSON arguments directly as primitive fields or arrays. NEVER wrap the tool arguments in quotes, markdown, or a single raw text string
                                         
                               Current Database Schema:
                               {schema}
