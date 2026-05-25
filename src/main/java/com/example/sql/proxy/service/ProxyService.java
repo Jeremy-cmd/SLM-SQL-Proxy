@@ -3,22 +3,28 @@ package com.example.sql.proxy.service;
 import com.example.sql.proxy.dto.ItemDto;
 import com.example.sql.proxy.dto.OrderRequest;
 import com.example.sql.proxy.model.Item;
+import com.example.sql.proxy.model.OrderItem;
 import com.example.sql.proxy.repository.ItemRepository;
 import com.example.sql.proxy.validator.SqlValidator;
 import com.example.sql.proxy.dto.UserDto;
 import com.example.sql.proxy.model.User;
 import com.example.sql.proxy.repository.UserRepository;
 import jakarta.transaction.Transactional;
+import lombok.Generated;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Service
@@ -66,10 +72,92 @@ public class ProxyService {
         return savedDtoItem;
     }
 
-    @Tool(name = "create new order", description = "creates a new order with items")
+    @Tool(description = "creates a new order with items")
     @Transactional
-    public String createOrder(OrderRequest orderRequest) {
-        return "";
+    public String createOrder(
+            @ToolParam(description = "The database ID of the user")
+            Integer userId,
+            @ToolParam(description = "The item or items")
+            List<OrderRequest.OrderItem> orderItems) {
+
+
+        log.info("the correct method was called !!!");
+        log.info("the contents of the order request are: " + userId + " " + orderItems);
+
+
+        List<OrderRequest.OrderItem> removedDuplicates = orderItems.stream()
+                .collect(Collectors.groupingBy(OrderRequest.OrderItem::sku, Collectors.summingInt(OrderRequest.OrderItem::quantity)
+                ))
+                .entrySet().stream()
+                .map(e -> new OrderRequest.OrderItem(e.getKey(), e.getValue()))
+                .toList();
+
+
+
+        List<String> skus = removedDuplicates.stream()
+                .map(OrderRequest.OrderItem::sku).toList();
+
+        String query = "SELECT * FROM items WHERE sku IN (:skus)";
+
+        List<ItemDto> items = jdbcClient.sql(query)
+                .param("skus", skus).query(ItemDto.class).stream().toList();
+
+        log.info("reaches !!");
+
+        Map<String, Integer> skuToIdMap = items.stream().collect(Collectors.toMap(ItemDto::sku, ItemDto::id));
+        Map<String, BigDecimal> skuToPriceMap = items.stream().collect(Collectors.toMap(ItemDto::sku, ItemDto::price));
+
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        for(OrderRequest.OrderItem item : removedDuplicates) {
+
+            BigDecimal price = skuToPriceMap.get(item.sku());
+            BigDecimal quantity = BigDecimal.valueOf(item.quantity());
+            totalAmount = totalAmount.add(price.multiply(quantity));
+
+        }
+
+        GeneratedKeyHolder keyHolder = new GeneratedKeyHolder();
+
+        jdbcClient.sql("""
+                INSERT INTO orders (user_id, amount)
+                VALUES (:userId, :amount)
+                """)
+                .param("userId", userId)
+                .param("amount", totalAmount)
+                .update(keyHolder, "id");
+
+        log.info("reaches here too !!");
+
+        Number generatedId = keyHolder.getKey();
+        if(generatedId == null) {
+            throw new IllegalArgumentException("Failed to retrieve genered order id");
+        }
+
+        int orderId = generatedId.intValue();
+
+        for(OrderRequest.OrderItem item : removedDuplicates) {
+            int itemId = skuToIdMap.get(item.sku());
+
+            jdbcClient.sql("""
+                    INSERT INTO order_items (order_id, item_id, quantity)
+                    VALUES (:orderId, :itemId, :quantity)
+                    ON CONFLICT (order_id, item_id) DO UPDATE
+                    SET quantity = order_items.quantity + EXCLUDED.quantity
+                    """)
+                    .param("orderId", orderId)
+                    .param("itemId", itemId)
+                    .param("quantity", item.quantity())
+                    .update();
+        }
+
+        log.info("reaches here third!");
+
+        String response = String.format("Success: Order #%d created for user #%d. Total Amount: #%s",
+                orderId, userId, totalAmount.toPlainString());
+
+        threadLocalResult.set(response);
+
+        return response;
     }
 
     public List<UserDto> getAllUsers() {
