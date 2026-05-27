@@ -1,8 +1,10 @@
 package com.example.sql.proxy.service;
 
+import com.example.sql.proxy.Exception.EmptyRequestException;
 import com.example.sql.proxy.dto.ItemDto;
 import com.example.sql.proxy.dto.OrderRequest;
 import com.example.sql.proxy.model.Item;
+import com.example.sql.proxy.model.Order;
 import com.example.sql.proxy.model.OrderItem;
 import com.example.sql.proxy.repository.ItemRepository;
 import com.example.sql.proxy.validator.SqlValidator;
@@ -84,6 +86,8 @@ public class ProxyService {
         log.info("the correct method was called !!!");
         log.info("the contents of the order request are: " + userId + " " + orderItems);
 
+        checkNonEmpty(userId, orderItems);
+
 
         List<OrderRequest.OrderItem> removedDuplicates = orderItems.stream()
                 .collect(Collectors.groupingBy(OrderRequest.OrderItem::sku, Collectors.summingInt(OrderRequest.OrderItem::quantity)
@@ -91,8 +95,6 @@ public class ProxyService {
                 .entrySet().stream()
                 .map(e -> new OrderRequest.OrderItem(e.getKey(), e.getValue()))
                 .toList();
-
-
 
         List<String> skus = removedDuplicates.stream()
                 .map(OrderRequest.OrderItem::sku).toList();
@@ -130,7 +132,7 @@ public class ProxyService {
 
         Number generatedId = keyHolder.getKey();
         if(generatedId == null) {
-            throw new IllegalArgumentException("Failed to retrieve genered order id");
+            throw new IllegalArgumentException("Failed to retrieve generated order id");
         }
 
         int orderId = generatedId.intValue();
@@ -158,6 +160,23 @@ public class ProxyService {
         threadLocalResult.set(response);
 
         return response;
+    }
+
+    private void checkNonEmpty(Integer userId, List<OrderRequest.OrderItem> orderItems) {
+        if(userId == null) {
+            throw new EmptyRequestException("Empty User Id");
+        }
+
+        for(OrderRequest.OrderItem item : orderItems) {
+
+            if(item.sku() == null) {
+                throw new EmptyRequestException("Empty sku");
+            }
+            if(item.quantity() == null) {
+                throw new EmptyRequestException("Empty quantity");
+            }
+        }
+
     }
 
     public List<UserDto> getAllUsers() {
