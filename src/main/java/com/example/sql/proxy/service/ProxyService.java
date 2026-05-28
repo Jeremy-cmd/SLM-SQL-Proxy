@@ -143,8 +143,6 @@ public class ProxyService {
             jdbcClient.sql("""
                     INSERT INTO order_items (order_id, item_id, quantity)
                     VALUES (:orderId, :itemId, :quantity)
-                    ON CONFLICT (order_id, item_id) DO UPDATE
-                    SET quantity = order_items.quantity + EXCLUDED.quantity
                     """)
                     .param("orderId", orderId)
                     .param("itemId", itemId)
@@ -154,7 +152,7 @@ public class ProxyService {
 
         log.info("reaches here third!");
 
-        String response = String.format("Success: Order #%d created for user #%d. Total Amount: #%s",
+        String response = String.format("Success: Order #%d created for user #%d. Total Amount: $%s",
                 orderId, userId, totalAmount.toPlainString());
 
         threadLocalResult.set(response);
