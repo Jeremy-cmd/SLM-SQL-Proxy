@@ -21,11 +21,13 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -39,6 +41,7 @@ public class ProxyService {
     private final UserRepository userRepository;
     private final ItemRepository itemRepository;
     private final JdbcClient jdbcClient;
+    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final ChatClient client;
     private final SqlValidator sqlValidator;
 
@@ -141,20 +144,21 @@ public class ProxyService {
 
         int orderId = generatedId.intValue();
 
-        for(OrderRequest.OrderItem item : removedDuplicates) {
-            int itemId = skuToIdMap.get(item.sku());
+        Map[] batchItems = removedDuplicates.stream()
+                .map(item -> {
+                    int itemId = skuToIdMap.get(item.sku());
+                    Map<String, Object> params = new HashMap<>();
+                    params.put("orderId", orderId);
+                    params.put("itemId", itemId);
+                    params.put("quantity", item.quantity());
+                    return params;
+                }).toArray(Map[]::new);
 
-            jdbcClient.sql("""
+        String batchSQL = """
                     INSERT INTO order_items (order_id, item_id, quantity)
                     VALUES (:orderId, :itemId, :quantity)
-                    """)
-                    .param("orderId", orderId)
-                    .param("itemId", itemId)
-                    .param("quantity", item.quantity())
-                    .update();
-        }
-
-        log.info("reaches here third!");
+                    """;
+        namedParameterJdbcTemplate.batchUpdate(batchSQL, batchItems);
 
         String response = String.format("Success: Order #%d created for user #%d. Total Amount: $%s",
                 orderId, userId, totalAmount.toPlainString());
