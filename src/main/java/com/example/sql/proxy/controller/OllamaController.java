@@ -9,6 +9,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/proxy")
@@ -23,8 +24,8 @@ public class OllamaController {
     }
 
     @PostMapping("/generate")
-    public  Object generate(@RequestParam("message") String message) {
-        return proxyService.generate(message);
+    public CompletableFuture<Object> generate(@RequestParam("message") String message) {
+        return CompletableFuture.supplyAsync(() -> proxyService.generate(message));
     }
 
     @PostMapping("/addUser")
