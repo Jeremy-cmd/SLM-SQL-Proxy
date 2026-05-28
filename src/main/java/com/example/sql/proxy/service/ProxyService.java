@@ -19,6 +19,8 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
@@ -39,6 +41,8 @@ public class ProxyService {
     private final JdbcClient jdbcClient;
     private final ChatClient client;
     private final SqlValidator sqlValidator;
+
+    private String cachedSchema;
 
     private static final ThreadLocal<Object> threadLocalResult = new ThreadLocal<>();
 
@@ -223,8 +227,12 @@ public class ProxyService {
 
     }
 
-    private String getDatabaseSchema() {
+    @EventListener(ApplicationReadyEvent.class)
+    public void loadSchemaStartup() {
+        this.cachedSchema = fetchDBSchema();
+    }
 
+    private String fetchDBSchema() {
         String sql = """
                 SELECT\s
                                 t.table_name,
@@ -254,11 +262,17 @@ public class ProxyService {
         StringBuilder schemaBuilder = new StringBuilder();
         for(Map<String, Object> row : rows) {
             schemaBuilder.append("Table: ").append(row.get("table_name")).append("\n")
-                         .append(" Columns: ").append(row.get("columns")).append("\n")
+                    .append(" Columns: ").append(row.get("columns")).append("\n")
                     .append(" Relationships ").append(row.get("relationships"))
                     .append("\n");
         }
 
         return schemaBuilder.toString();
     }
+
+    private String getDatabaseSchema() {
+        return this.cachedSchema;
+    }
+
+
 }
