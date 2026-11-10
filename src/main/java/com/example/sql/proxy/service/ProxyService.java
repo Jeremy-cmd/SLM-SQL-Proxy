@@ -1,22 +1,18 @@
 package com.example.sql.proxy.service;
 
 import com.example.sql.proxy.Exception.EmptyRequestException;
+import com.example.sql.proxy.Exception.ItemNotFoundException;
 import com.example.sql.proxy.dto.ItemDto;
 import com.example.sql.proxy.dto.OrderRequest;
 import com.example.sql.proxy.model.Item;
-import com.example.sql.proxy.model.Order;
-import com.example.sql.proxy.model.OrderItem;
 import com.example.sql.proxy.repository.ItemRepository;
 import com.example.sql.proxy.validator.SqlValidator;
 import com.example.sql.proxy.dto.UserDto;
 import com.example.sql.proxy.model.User;
 import com.example.sql.proxy.repository.UserRepository;
-import jakarta.transaction.Transactional;
-import lombok.Generated;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -25,13 +21,14 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Service
 @Slf4j
@@ -44,10 +41,18 @@ public class ProxyService {
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final ChatClient client;
     private final SqlValidator sqlValidator;
+    private final TransactionTemplate transactionTemplate;
 
     private String cachedSchema;
 
     private static final ThreadLocal<Object> threadLocalResult = new ThreadLocal<>();
+
+    // Whole-word match so e.g. "address" no longer triggers "add".
+    private static final Pattern WRITE_INTENT = Pattern.compile(
+            "\\b(add|save|create|insert|register|order|buy|purchase|place)\\b",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final String GENERATED_QUERY_TIMEOUT = "5s";
 
 
     @Tool(description = "Executes an INSERT operation to create a NEW user record. Triggered ONLY by verbs like 'add', 'create', or 'save'." +
@@ -82,16 +87,20 @@ public class ProxyService {
     }
 
     @Tool(description = "creates a new order with items")
-    @Transactional
     public String createOrder(
             @ToolParam(description = "The database ID of the user")
             Integer userId,
             @ToolParam(description = "The item or items")
             List<OrderRequest.OrderItem> orderItems) {
 
+        // Programmatic transaction: the LLM invokes this via prompt.tools(this), which bypasses
+        // the Spring proxy, so @Transactional would silently not apply.
+        return transactionTemplate.execute(status -> doCreateOrder(userId, orderItems));
+    }
 
-        log.info("the correct method was called !!!");
-        log.info("the contents of the order request are: " + userId + " " + orderItems);
+    private String doCreateOrder(Integer userId, List<OrderRequest.OrderItem> orderItems) {
+
+        log.info("createOrder called: userId={} items={}", userId, orderItems);
 
         checkNonEmpty(userId, orderItems);
 
@@ -111,10 +120,15 @@ public class ProxyService {
         List<ItemDto> items = jdbcClient.sql(query)
                 .param("skus", skus).query(ItemDto.class).stream().toList();
 
-        log.info("reaches !!");
-
         Map<String, Integer> skuToIdMap = items.stream().collect(Collectors.toMap(ItemDto::sku, ItemDto::id));
         Map<String, BigDecimal> skuToPriceMap = items.stream().collect(Collectors.toMap(ItemDto::sku, ItemDto::price));
+
+        List<String> missingSkus = skus.stream()
+                .filter(sku -> !skuToIdMap.containsKey(sku))
+                .toList();
+        if (!missingSkus.isEmpty()) {
+            throw new ItemNotFoundException("Unknown SKUs: " + missingSkus);
+        }
 
         BigDecimal totalAmount = BigDecimal.ZERO;
         for(OrderRequest.OrderItem item : removedDuplicates) {
@@ -134,8 +148,6 @@ public class ProxyService {
                 .param("userId", userId)
                 .param("amount", totalAmount)
                 .update(keyHolder, "id");
-
-        log.info("reaches here too !!");
 
         Number generatedId = keyHolder.getKey();
         if(generatedId == null) {
@@ -173,6 +185,10 @@ public class ProxyService {
             throw new EmptyRequestException("Empty User Id");
         }
 
+        if(orderItems == null || orderItems.isEmpty()) {
+            throw new EmptyRequestException("Empty order items");
+        }
+
         for(OrderRequest.OrderItem item : orderItems) {
 
             if(item.sku() == null) {
@@ -204,8 +220,7 @@ public class ProxyService {
                     .system(s -> s.param("schema", currentSchema))
                     .user(message);
 
-            String lowerMsg = message.toLowerCase();
-            if (lowerMsg.contains("add") || lowerMsg.contains("save") || lowerMsg.contains("create")) {
+            if (WRITE_INTENT.matcher(message).find()) {
                 prompt.tools(this);
             }
 
@@ -221,14 +236,29 @@ public class ProxyService {
 
             sqlValidator.validateSQLQuery(query);
 
-            return jdbcClient.sql(query).query()
-                    .listOfRows();
+            return executeReadOnly(query);
 
         }
         finally {
             threadLocalResult.remove();
         }
 
+    }
+
+    /**
+     * Runs LLM-generated SQL in a READ ONLY transaction with a statement timeout, so the
+     * database itself rejects writes (e.g. data-modifying CTEs that pass the SELECT check)
+     * and long-running queries such as pg_sleep or huge cross joins.
+     */
+    private List<Map<String, Object>> executeReadOnly(String query) {
+        TransactionTemplate readOnly = new TransactionTemplate(transactionTemplate.getTransactionManager());
+        readOnly.setReadOnly(true);
+
+        return readOnly.execute(status -> {
+            jdbcClient.sql("SET TRANSACTION READ ONLY").update();
+            jdbcClient.sql("SET LOCAL statement_timeout = '" + GENERATED_QUERY_TIMEOUT + "'").update();
+            return jdbcClient.sql(query).query().listOfRows();
+        });
     }
 
     @EventListener(ApplicationReadyEvent.class)

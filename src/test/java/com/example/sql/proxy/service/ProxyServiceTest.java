@@ -1,6 +1,7 @@
 package com.example.sql.proxy.service;
 
 import com.example.sql.proxy.Exception.EmptyRequestException;
+import com.example.sql.proxy.Exception.ItemNotFoundException;
 import com.example.sql.proxy.dto.OrderRequest;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -74,6 +75,27 @@ class ProxyServiceTest {
         OrderRequest.OrderItem orderItem = new OrderRequest.OrderItem("TA-DI-TA-BR-01", 5);
         EmptyRequestException emptyRequestException = assertThrows(EmptyRequestException.class, () -> proxyService.createOrder(null, List.of(orderItem)));
         assertEquals(emptyRequestException.getMessage(), "Empty User Id");
+    }
+
+    @Test
+    void createOrderEmptyItemsFails() {
+        EmptyRequestException e = assertThrows(EmptyRequestException.class,
+                () -> proxyService.createOrder(userId, List.of()));
+        assertEquals("Empty order items", e.getMessage());
+    }
+
+    @Test
+    void createOrderUnknownSkuFailsAndWritesNothing() {
+        List<OrderRequest.OrderItem> items = List.of(
+                new OrderRequest.OrderItem("TA-DI-TA-BR-01", 1),
+                new OrderRequest.OrderItem("DOES-NOT-EXIST", 2));
+
+        ItemNotFoundException e = assertThrows(ItemNotFoundException.class,
+                () -> proxyService.createOrder(userId, items));
+        assertTrue(e.getMessage().contains("DOES-NOT-EXIST"));
+
+        Integer orderCount = jdbcClient.sql("SELECT COUNT(*) FROM orders").query(Integer.class).single();
+        assertEquals(0, orderCount);
     }
 
 }

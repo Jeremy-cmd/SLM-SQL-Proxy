@@ -2,14 +2,11 @@ package com.example.sql.proxy.controller;
 
 import com.example.sql.proxy.dto.ItemDto;
 import com.example.sql.proxy.dto.UserDto;
-import com.example.sql.proxy.model.User;
 import com.example.sql.proxy.service.ProxyService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/proxy")
@@ -24,8 +21,9 @@ public class OllamaController {
     }
 
     @PostMapping("/generate")
-    public CompletableFuture<Object> generate(@RequestParam("message") String message) {
-        return CompletableFuture.supplyAsync(() -> proxyService.generate(message));
+    public Object generate(@RequestParam("message") String message) {
+        // Runs on a virtual thread (spring.threads.virtual.enabled=true), so blocking here is cheap.
+        return proxyService.generate(message);
     }
 
     @PostMapping("/addUser")
