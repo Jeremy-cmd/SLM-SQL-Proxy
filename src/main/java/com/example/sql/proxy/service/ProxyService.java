@@ -22,6 +22,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -42,10 +44,9 @@ public class ProxyService {
     private final ChatClient client;
     private final SqlValidator sqlValidator;
     private final TransactionTemplate transactionTemplate;
+    private final ObjectMapper objectMapper;
 
     private String cachedSchema;
-
-    private static final ThreadLocal<Object> threadLocalResult = new ThreadLocal<>();
 
     // Whole-word match so e.g. "address" no longer triggers "add".
     private static final Pattern WRITE_INTENT = Pattern.compile(
@@ -56,7 +57,7 @@ public class ProxyService {
 
 
     @Tool(description = "Executes an INSERT operation to create a NEW user record. Triggered ONLY by verbs like 'add', 'create', or 'save'." +
-            "\"NEVER call this for 'list', 'show', 'search', or 'who', or 'give', or 'send' queries.\"")
+            "\"NEVER call this for 'list', 'show', 'search', or 'who', or 'give', or 'send' queries.\"", returnDirect = true)
     public UserDto addUser(UserDto userDto) {
 
         User user = new User();
@@ -66,13 +67,10 @@ public class ProxyService {
 
         User savedUser = userRepository.save(user);
 
-        UserDto savedDtoUser = new UserDto(savedUser.getId(), savedUser.getFirstName(), savedUser.getLastName(), savedUser.getAddress());
-        threadLocalResult.set(savedDtoUser);
-        return savedDtoUser;
-
+        return new UserDto(savedUser.getId(), savedUser.getFirstName(), savedUser.getLastName(), savedUser.getAddress());
     }
 
-    @Tool(description = "Executes an INSERT STATEMENT to create a new ITEM record")
+    @Tool(description = "Executes an INSERT STATEMENT to create a new ITEM record", returnDirect = true)
     public ItemDto addItem(ItemDto itemDto) {
         Item item = new Item();
         item.setName(itemDto.name());
@@ -81,12 +79,10 @@ public class ProxyService {
         item.setDescription(itemDto.description());
 
         Item savedItem = itemRepository.save(item);
-        ItemDto savedDtoItem = new ItemDto(savedItem.getId(), savedItem.getName(), savedItem.getSku(), savedItem.getPrice(), savedItem.getDescription());
-        threadLocalResult.set(savedDtoItem);
-        return savedDtoItem;
+        return new ItemDto(savedItem.getId(), savedItem.getName(), savedItem.getSku(), savedItem.getPrice(), savedItem.getDescription());
     }
 
-    @Tool(description = "creates a new order with items")
+    @Tool(description = "creates a new order with items", returnDirect = true)
     public String createOrder(
             @ToolParam(description = "The database ID of the user")
             Integer userId,
@@ -175,8 +171,6 @@ public class ProxyService {
         String response = String.format("Success: Order #%d created for user #%d. Total Amount: $%s",
                 orderId, userId, totalAmount.toPlainString());
 
-        threadLocalResult.set(response);
-
         return response;
     }
 
@@ -211,37 +205,29 @@ public class ProxyService {
 
     public Object generate(String message) {
 
-        threadLocalResult.remove();
-
-        try {
             String currentSchema = getDatabaseSchema();
 
             var prompt = client.prompt()
                     .system(s -> s.param("schema", currentSchema))
                     .user(message);
 
-            if (WRITE_INTENT.matcher(message).find()) {
+            boolean toolsEnabled = WRITE_INTENT.matcher(message).find();
+            if (toolsEnabled) {
                 prompt.tools(this);
             }
 
-            String query = prompt.call().content();
+            String result = prompt.call().content();
 
-            Object result = threadLocalResult.get();
+            if (toolsEnabled) {
+                try {
+                    return List.of(objectMapper.readTree(result));
+                } catch (JacksonException e) {
 
-            if (result != null) {
-                log.info("user added successfully");
-                return List.of(result);
+                }
             }
 
-
-            sqlValidator.validateSQLQuery(query);
-
-            return executeReadOnly(query);
-
-        }
-        finally {
-            threadLocalResult.remove();
-        }
+            sqlValidator.validateSQLQuery(result);
+            return executeReadOnly(result);
 
     }
 
