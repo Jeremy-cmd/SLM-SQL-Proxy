@@ -22,7 +22,6 @@ public class OllamaController {
 
     @PostMapping("/generate")
     public Object generate(@RequestParam("message") String message) {
-        // Runs on a virtual thread (spring.threads.virtual.enabled=true), so blocking here is cheap.
         return proxyService.generate(message);
     }
 

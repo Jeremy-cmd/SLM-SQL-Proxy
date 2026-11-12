@@ -82,7 +82,8 @@ public class ProxyService {
         return new ItemDto(savedItem.getId(), savedItem.getName(), savedItem.getSku(), savedItem.getPrice(), savedItem.getDescription());
     }
 
-    @Tool(description = "creates a new order with items", returnDirect = true)
+    @Tool(description = "creates a new purchase order with items. " +
+            "Use ONLY when the user asks to buy, order, or purchase items.", returnDirect = true)
     public String createOrder(
             @ToolParam(description = "The database ID of the user")
             Integer userId,
@@ -114,7 +115,7 @@ public class ProxyService {
         String query = "SELECT * FROM items WHERE sku IN (:skus)";
 
         List<ItemDto> items = jdbcClient.sql(query)
-                .param("skus", skus).query(ItemDto.class).stream().toList();
+                .param("skus", skus).query(ItemDto.class).list();
 
         Map<String, Integer> skuToIdMap = items.stream().collect(Collectors.toMap(ItemDto::sku, ItemDto::id));
         Map<String, BigDecimal> skuToPriceMap = items.stream().collect(Collectors.toMap(ItemDto::sku, ItemDto::price));
